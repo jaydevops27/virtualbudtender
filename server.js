@@ -107,6 +107,13 @@ Key Responsibilities:
 - Ask clarifying questions when needed
 - Maintain a friendly, professional tone
 
+When the user clearly describes their need, also provide this structured JSON:
+{
+  "category": "edible",
+  "effect": "relaxation",
+  "experienceLevel": "beginner"
+}
+
 Remember to:
 - Be direct and clear in your recommendations
 - Use simple language to explain complex concepts
@@ -837,6 +844,41 @@ const rateLimit = {
 app.post('/api/chat', async (req, res, next) => {
   try {
     const startTime = Date.now();
+
+    // Check for "See More Recommendations" request
+    if (req.body.filters) {
+      const { filters, userId } = req.body;
+
+      if (!userId) {
+        throw new Error("User ID is required for recommendation filtering.");
+      }
+
+      const excludeSet = new Set(filters.excludeProducts || []);
+      const searchCriteria = {
+        ...filters,
+        excludeIds: excludeSet
+      };
+
+      const products = productCatalog.searchProducts(searchCriteria);
+
+      const responseData = {
+        greeting: `Here are some more recommendations for you:`,
+        products: products,
+        followUpQuestion: '',
+        recommendations: products
+      };
+
+      const processingTime = Date.now() - startTime;
+      console.log(`See more recommendations processed in ${processingTime}ms`);
+
+      return res.json({
+        ...responseData,
+        processingTime,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Normal message flow
     const { message, conversationHistory, userId } = validators.chatRequest(req.body);
 
     console.log(`Processing chat request for user ${userId}:`, message);
@@ -847,7 +889,6 @@ app.post('/api/chat', async (req, res, next) => {
       userId
     );
 
-    // Add response time tracking
     const processingTime = Date.now() - startTime;
     console.log(`Chat response generated in ${processingTime}ms`);
 
@@ -860,6 +901,7 @@ app.post('/api/chat', async (req, res, next) => {
     next(error);
   }
 });
+
 
 app.post('/api/synthesize-speech', async (req, res, next) => {
   try {

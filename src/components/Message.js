@@ -19,7 +19,7 @@ const Message = ({
   const handleProductSelect = (product) => {
     if (product.type === 'RECOMMENDATION_REQUEST') {
       onCategorySelect({
-        type: 'REQUEST_MORE',
+        type: 'RECOMMENDATION_REQUEST',
         filters: {
           strain: product.filters?.strain,
           excludeProducts: product.filters?.excludeProducts

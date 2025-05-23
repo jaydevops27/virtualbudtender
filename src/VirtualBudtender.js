@@ -2,14 +2,12 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, VolumeX, Volume2, RefreshCw } from 'lucide-react';
 import axios from 'axios';
 
-// Local imports
 import LoadingAnimation from './components/LoadingAnimation';
 import Message from './components/Message';
 import PreferenceModal from './components/PreferenceModal';
 import SpeechManager from './utils/SpeechManager';
 import './VirtualBudtender.css';
 
-// Constants
 const VOICE_OPTIONS = {
   DEFAULT: 'en-US',
   RATE: 1,
@@ -21,9 +19,7 @@ const TIMING = {
   MESSAGE_DELAY: 500
 };
 
-// Main Component
 const VirtualBudtender = () => {
-  // State declarations
   const [showPreferenceModal, setShowPreferenceModal] = useState(true);
   const [chatHistory, setChatHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,54 +33,74 @@ const VirtualBudtender = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [userId] = useState(() => `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
 
-  // Refs
   const chatEndRef = useRef(null);
   const recognition = useRef(null);
   const lastProcessedMessage = useRef('');
+  const lastUsedFiltersRef = useRef(null);
   const speechManagerRef = useRef(null);
-  // Initialize speech manager
+
   useEffect(() => {
     try {
       speechManagerRef.current = new SpeechManager();
-      speechManagerRef.current.setStateChangeCallback((playing) => {
-        setIsPlaying(playing);
-      });
-
-      return () => {
-        if (speechManagerRef.current) {
-          speechManagerRef.current.stop();
-        }
-      };
+      speechManagerRef.current.setStateChangeCallback(setIsPlaying);
+      return () => speechManagerRef.current?.stop();
     } catch (error) {
       console.error('Error initializing SpeechManager:', error);
     }
   }, []);
 
-  // Initialize speech recognition support check
   useEffect(() => {
-    const isSupported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
-    setIsSpeechSupported(isSupported);
+    setIsSpeechSupported('webkitSpeechRecognition' in window || 'SpeechRecognition' in window);
   }, []);
 
-  // Auto-scroll to latest message
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatHistory]);
 
-  // Message handling functions
   const handleSubmit = useCallback(async (msg) => {
-    if (msg.trim() === '' || msg === lastProcessedMessage.current) return;
+    if (typeof msg === 'object' && msg.type === 'RECOMMENDATION_REQUEST') {
+      const { filters } = msg;
+      const mergedFilters = filters || lastUsedFiltersRef.current;
+
+      const response = await axios.post('http://localhost:5001/api/chat', {
+        message: 'see more recommendations',
+        userId,
+        filters: mergedFilters
+      });
+
+      const { greeting, recommendations } = response.data;
+      const shownProductIds = new Set();
+      chatHistory.forEach(m => m.recommendations?.forEach(r => shownProductIds.add(r.CatalogItemId)));
+
+      const newRecommendations = recommendations.filter(r => !shownProductIds.has(r.CatalogItemId));
+
+      const responseMessage = {
+        type: 'budtender',
+        content: greeting || 'Here are some more recommendations for you:',
+        id: Date.now(),
+        recommendations: newRecommendations.slice(0, 5),
+        filters: mergedFilters
+      };
+
+      if (newRecommendations.length === 0) {
+        responseMessage.content += '\nWe\'ve shown you all available matches. Would you like to explore other similar options like hybrid or indica edibles?';
+      }
+
+      setChatHistory(prev => [...prev, responseMessage]);
+      return;
+    }
+
+    if (typeof msg !== 'string' || msg.trim() === '' || msg === lastProcessedMessage.current) return;
 
     lastProcessedMessage.current = msg;
     setTextInput('');
     setCurrentSpeech('');
-    
-    // Add user message
+
     const userMessageId = Date.now();
-    setChatHistory(prev => [...prev, { 
-      type: 'user', 
+    setChatHistory(prev => [...prev, {
+      type: 'user',
       content: msg.replace(/\n/g, ' ').trim(),
-      id: userMessageId 
+      id: userMessageId
     }]);
 
     const loadingId = Date.now() + 1;
@@ -110,17 +126,24 @@ const VirtualBudtender = () => {
           content: typeof message.content === 'string' ? message.content : 'Loading...'
         }));
 
-      const response = await axios.post('http://localhost:5001/api/chat', { 
+      const response = await axios.post('http://localhost:5001/api/chat', {
         message: msg,
         conversationHistory: conversationHistoryForAPI,
         userId
       });
 
-      const { greeting, products, followUpQuestion, recommendations } = response.data;
-      
-      // Format the response content
+      let { greeting, products, followUpQuestion, recommendations, filters } = response.data;
+
+      if ((!products || !products.length) && recommendations?.length) {
+        products = recommendations;
+      }
+
+      if (filters) {
+        lastUsedFiltersRef.current = filters;
+      }
+
       let formattedContent = greeting || '';
-      
+
       if (products?.length) {
         formattedContent += '\n\nProducts:';
         products.forEach(product => {
@@ -133,37 +156,38 @@ const VirtualBudtender = () => {
           formattedContent += '\n';
         });
       }
-      
+
       if (followUpQuestion) {
         formattedContent += `\n${followUpQuestion}`;
       }
 
-      // Remove thinking message and add response
       setChatHistory(prev => {
         const withoutThinking = prev.filter(m => m.id !== loadingId);
+        const shownProductIds = new Set();
+        prev.forEach(m => m.recommendations?.forEach(r => shownProductIds.add(r.CatalogItemId)));
+        const newRecommendations = recommendations.filter(r => !shownProductIds.has(r.CatalogItemId));
+
         const responseMessage = {
           type: 'budtender',
           content: formattedContent.trim(),
           id: Date.now(),
-          recommendations
+          recommendations: newRecommendations.slice(0, 5),
+          filters: filters || lastUsedFiltersRef.current
         };
-        
+
         if (inputMode === 'voice' && !isMuted) {
-          setTimeout(() => {
-            speakResponse(formattedContent.trim(), responseMessage.id);
-          }, TIMING.MESSAGE_DELAY);
+          setTimeout(() => speakResponse(formattedContent.trim(), responseMessage.id), TIMING.MESSAGE_DELAY);
         }
-        
+
         return [...withoutThinking, responseMessage];
       });
-
     } catch (error) {
       console.error('Error in chat request:', error);
       setChatHistory(prev => {
         const withoutThinking = prev.filter(m => m.id !== loadingId);
         return [...withoutThinking, {
           type: 'budtender',
-          content: "I apologize, but I encountered a technical issue. Could you please try your request again?",
+          content: 'I apologize, but I encountered a technical issue. Could you please try your request again?',
           id: Date.now()
         }];
       });
