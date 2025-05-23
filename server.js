@@ -665,6 +665,29 @@ class ChatManager {
     return response;
   }
 
+  getNoProductsResponse(queryContext) {
+    let message = "I couldn't find any more products matching your current request";
+    if (queryContext && queryContext.category) {
+      message = `I couldn't find any more ${queryContext.category} products`;
+      if (queryContext.strain) {
+        message += ` of the ${queryContext.strain} strain`;
+      }
+      message += " matching your current request, especially after considering those already shown.";
+    } else if (queryContext && queryContext.strain) {
+      message = `I couldn't find any more products of the ${queryContext.strain} strain matching your current request, especially after considering those already shown.`;
+    } else {
+      message += ", especially after considering those already shown.";
+    }
+
+    return {
+      greeting: message,
+      products: [],
+      followUpQuestion: "Would you like to try different search criteria or explore other product categories?",
+      recommendations: [],
+      educationalContent: null
+    };
+  }
+
   formatProductDetails(product) {
     return {
       name: product.Name,
