@@ -1,18 +1,28 @@
 import React, { useRef } from 'react';
 import { ThumbsUp, ThumbsDown, Sparkles, ChevronRight, ChevronLeft } from 'lucide-react';
 
-const SmartRecommendations = ({ recommendations, onProductSelect, onLike, onDislike }) => {
+const SmartRecommendations = ({ recommendations, onProductSelect, onLike, onDislike, category }) => {
   const scrollRef = useRef(null);
   
   if (!recommendations?.length) return null;
 
   const handleSeeMore = () => {
-    const userQuery = `Show me more ${recommendations[0]?.strain || ''} products`;
+    const strain = recommendations[0]?.strain || '';
+    let userQuery = 'Show me more ';
+    if (category) {
+      userQuery += `${category} `;
+    }
+    if (strain) {
+      userQuery += `${strain} `;
+    }
+    userQuery += 'products';
+    
     onProductSelect({
       type: 'RECOMMENDATION_REQUEST',
       query: userQuery,
       filters: {
-        strain: recommendations[0]?.strain || '',
+        category: category,
+        strain: strain,
         excludeProducts: recommendations
           .filter(rec => rec?.Name)
           .map(rec => rec.Name)

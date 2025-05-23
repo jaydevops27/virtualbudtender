@@ -42,6 +42,7 @@ const VirtualBudtender = () => {
   const recognition = useRef(null);
   const lastProcessedMessage = useRef('');
   const speechManagerRef = useRef(null);
+  const currentCategoryQueryRef = useRef(''); // Added for storing current category query
   // Initialize speech manager
   useEffect(() => {
     try {
@@ -72,10 +73,37 @@ const VirtualBudtender = () => {
   }, [chatHistory]);
 
   // Message handling functions
-  const handleSubmit = useCallback(async (msg) => {
-    if (msg.trim() === '' || msg === lastProcessedMessage.current) return;
+  const handleSubmit = useCallback(async (msgInput) => {
+    let userFriendlyQuery = '';
+    let apiPrompt = '';
 
-    lastProcessedMessage.current = msg;
+    if (typeof msgInput === 'object' && msgInput.type === 'REQUEST_MORE') {
+      const { category, strain, excludeProducts } = msgInput.filters;
+      userFriendlyQuery = `Show me more ${category || ''} ${strain || ''} products.`.replace(/  +/g, ' ').trim();
+      
+      let promptParts = [];
+      if (category) promptParts.push(`I am looking for ${category} products`);
+      if (strain) promptParts.push(`specifically the ${strain} strain`);
+      promptParts.push('Please provide more recommendations.');
+      if (excludeProducts && excludeProducts.length > 0) {
+        promptParts.push(`Do not include the following products: ${excludeProducts.join(', ')}.`);
+      }
+      apiPrompt = promptParts.join(promptParts.length > 2 ? ', ' : ' ') + (promptParts.length <=2 ? '.' : '');
+      
+      if (userFriendlyQuery === lastProcessedMessage.current) return;
+      lastProcessedMessage.current = userFriendlyQuery;
+      currentCategoryQueryRef.current = category || ''; // Store category for this request
+    } else if (typeof msgInput === 'string') {
+      if (msgInput.trim() === '' || msgInput === lastProcessedMessage.current) return;
+      userFriendlyQuery = msgInput.replace(/\n/g, ' ').trim();
+      apiPrompt = userFriendlyQuery;
+      lastProcessedMessage.current = userFriendlyQuery;
+      currentCategoryQueryRef.current = userFriendlyQuery; // Capture category if it's a string
+    } else {
+      console.error('Invalid message input to handleSubmit:', msgInput);
+      return;
+    }
+
     setTextInput('');
     setCurrentSpeech('');
     
@@ -83,7 +111,7 @@ const VirtualBudtender = () => {
     const userMessageId = Date.now();
     setChatHistory(prev => [...prev, { 
       type: 'user', 
-      content: msg.replace(/\n/g, ' ').trim(),
+      content: userFriendlyQuery,
       id: userMessageId 
     }]);
 
@@ -104,15 +132,17 @@ const VirtualBudtender = () => {
 
     try {
       const conversationHistoryForAPI = chatHistory
-        .filter(message => !message.isThinking)
+        .filter(message => !message.isThinking && message.id !== userMessageId) // Exclude the current user message being processed
         .map(message => ({
           role: message.type === 'user' ? 'user' : 'assistant',
-          content: typeof message.content === 'string' ? message.content : 'Loading...'
+          content: typeof message.content === 'string' ? message.content : 'Loading...' // Or some placeholder for non-string
         }));
+      
+      conversationHistoryForAPI.push({ role: 'user', content: apiPrompt }); // Add the current API prompt
 
       const response = await axios.post('http://localhost:5001/api/chat', { 
-        message: msg,
-        conversationHistory: conversationHistoryForAPI,
+        message: apiPrompt, // Send the potentially modified API prompt
+        conversationHistory: conversationHistoryForAPI, // Send the updated history
         userId
       });
 
@@ -145,7 +175,9 @@ const VirtualBudtender = () => {
           type: 'budtender',
           content: formattedContent.trim(),
           id: Date.now(),
-          recommendations
+          recommendations,
+          // Add category if recommendations are present
+          ...(recommendations && recommendations.length > 0 && { category: currentCategoryQueryRef.current })
         };
         
         if (inputMode === 'voice' && !isMuted) {

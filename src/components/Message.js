@@ -21,6 +21,7 @@ const Message = ({
       onCategorySelect({
         type: 'REQUEST_MORE',
         filters: {
+          category: product.filters?.category,
           strain: product.filters?.strain,
           excludeProducts: product.filters?.excludeProducts
         }
@@ -86,6 +87,7 @@ const Message = ({
                 onProductSelect={handleProductSelect}
                 onLike={onLike}
                 onDislike={onDislike}
+                category={message.category}
               />
             </div>
           )}
